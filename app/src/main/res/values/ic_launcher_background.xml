@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+       Adaptive icon background. The logo artwork is drawn on white, so the plate
+       matches it and the mark reads the same as the source file.
+    -->
+    <color name="ic_launcher_background">#FFFFFFFF</color>
+</resources>

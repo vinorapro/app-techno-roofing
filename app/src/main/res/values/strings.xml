@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Techno Roofing</string>
+    <string name="error_no_connection">Unable to load Techno Roofing.\nCheck your connection and try again.</string>
+    <string name="action_retry">Retry</string>
+    <string name="error_no_app_for_link">No app available to open this link</string>
+
+    <!--
+       Shared by the manifest meta-data and AppMessagingService so background
+       notifications drawn by the FCM SDK land on the same channel as foreground ones.
+    -->
+    <string name="notification_channel_id" translatable="false">techno_roofing_alerts</string>
+    <string name="notification_channel_name">Alerts</string>
+    <string name="notification_channel_description">Updates from Techno Roofing Operations</string>
+</resources>

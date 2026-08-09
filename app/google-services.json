@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "63691058309",
+    "project_id": "techno-roofing",
+    "storage_bucket": "techno-roofing.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:63691058309:android:17314d72dd041d2edd8dec",
+        "android_client_info": {
+          "package_name": "com.techno.roofing"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyADFxlqQ14PD2S_658rJvWdTwi-E8iaxeg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

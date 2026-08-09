@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+   No <monochrome> layer: that slot needs a flat silhouette, and handing it the
+   full-colour logo makes Android 13+ themed icons render as a solid blob. Without it
+   the launcher falls back to this icon, which is the correct result.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

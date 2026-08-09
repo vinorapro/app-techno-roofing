@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+   The WebView stores the signed-in Supabase session in its local storage, so no app
+   data may leave the device. allowBackup="false" covers cloud backup; on Android 12+
+   device-to-device transfer is a separate channel and has to be excluded explicitly.
+   Users sign in again on a new device.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>
