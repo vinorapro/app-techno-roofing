@@ -11,4 +11,15 @@
     <string name="notification_channel_id" translatable="false">techno_roofing_alerts</string>
     <string name="notification_channel_name">Alerts</string>
     <string name="notification_channel_description">Updates from Techno Roofing Operations</string>
+
+    <!--
+       Per-category channels, each carrying its own sound. Separate from the general
+       channel above so a user can silence one category without losing the others.
+    -->
+    <string name="channel_new_order_name">New Orders</string>
+    <string name="channel_new_order_description">A new order has been placed</string>
+    <string name="channel_order_update_name">Order Updates</string>
+    <string name="channel_order_update_description">Changes to an existing order</string>
+    <string name="channel_stock_alert_name">Stock Alerts</string>
+    <string name="channel_stock_alert_description">Low stock and restock warnings</string>
 </resources>

@@ -5,9 +5,12 @@ import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -27,6 +30,45 @@ import com.google.firebase.messaging.RemoteMessage
  *    nothing is shown unless we post it, which is what [showNotification] does.
  */
 class AppMessagingService : FirebaseMessagingService() {
+
+    /**
+     * The sound-carrying channels, one per alert category.
+     *
+     * Id, name and sound are declared together so channel creation and the lookup that
+     * picks a channel for an incoming message cannot drift apart. These are separate
+     * from the general channel named in the manifest meta-data, which stays the
+     * fallback for anything that does not name one of these.
+     */
+    private enum class AlertChannel(
+        val id: String,
+        val nameRes: Int,
+        val descriptionRes: Int,
+        val soundRes: Int
+    ) {
+        NEW_ORDER(
+            "new_order",
+            R.string.channel_new_order_name,
+            R.string.channel_new_order_description,
+            R.raw.new_order
+        ),
+        ORDER_UPDATE(
+            "order_update",
+            R.string.channel_order_update_name,
+            R.string.channel_order_update_description,
+            R.raw.order_update
+        ),
+        STOCK_ALERT(
+            "stock_alert",
+            R.string.channel_stock_alert_name,
+            R.string.channel_stock_alert_description,
+            R.raw.restock_lowstock
+        );
+
+        companion object {
+            /** The channel [id] names, or null when it names none of them. */
+            fun forId(id: String?): AlertChannel? = entries.firstOrNull { it.id == id }
+        }
+    }
 
     /**
      * Called on first token generation and on every refresh — reinstall, restored
@@ -58,14 +100,23 @@ class AppMessagingService : FirebaseMessagingService() {
             id = message.messageId?.hashCode() ?: System.currentTimeMillis().toInt(),
             title = title,
             body = body,
-            url = message.data[DATA_URL]
+            url = message.data[DATA_URL],
+            // android_channel_id on a notification payload, or the data key when the
+            // send is data-only. Anything unrecognised falls back to the general channel.
+            channel = AlertChannel.forId(message.notification?.channelId ?: message.data[DATA_CHANNEL])
         )
     }
 
     // The notify() call below is guarded by canPostNotifications() on the first line,
     // but lint cannot follow that check across a helper function.
     @SuppressLint("MissingPermission")
-    private fun showNotification(id: Int, title: String, body: String, url: String?) {
+    private fun showNotification(
+        id: Int,
+        title: String,
+        body: String,
+        url: String?,
+        channel: AlertChannel?
+    ) {
         // Silently dropped on Android 13+ if the user denied notifications, so there
         // is no point building anything.
         if (!canPostNotifications()) {
@@ -86,9 +137,9 @@ class AppMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(
+        val builder = NotificationCompat.Builder(
             this,
-            getString(R.string.notification_channel_id)
+            channel?.id ?: getString(R.string.notification_channel_id)
         )
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
@@ -99,7 +150,14 @@ class AppMessagingService : FirebaseMessagingService() {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
-            .build()
+
+        // Pre-O has no channels, so the sound has to ride on the notification itself.
+        // On O+ this field is ignored and the channel's own sound plays instead.
+        if (channel != null) {
+            builder.setSound(soundUri(this, channel.soundRes))
+        }
+
+        val notification = builder.build()
 
         NotificationManagerCompat.from(this).notify(id, notification)
     }
@@ -130,6 +188,12 @@ class AppMessagingService : FirebaseMessagingService() {
         private const val DATA_BODY = "body"
 
         /**
+         * Data-payload key naming one of the [AlertChannel] ids. Only needed for
+         * data-only sends; a notification payload carries `android_channel_id` instead.
+         */
+        private const val DATA_CHANNEL = "channel_id"
+
+        /**
          * Data-payload key naming an in-app destination.
          *
          * Public because the background path never runs this service: the FCM SDK posts
@@ -151,6 +215,8 @@ class AppMessagingService : FirebaseMessagingService() {
          */
         fun ensureNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val manager = context.getSystemService(NotificationManager::class.java)
+
             val channel = NotificationChannel(
                 context.getString(R.string.notification_channel_id),
                 context.getString(R.string.notification_channel_name),
@@ -158,8 +224,33 @@ class AppMessagingService : FirebaseMessagingService() {
             ).apply {
                 description = context.getString(R.string.notification_channel_description)
             }
-            context.getSystemService(NotificationManager::class.java)
-                .createNotificationChannel(channel)
+            manager.createNotificationChannel(channel)
+
+            // A channel's sound is read once, at creation. Re-registering an existing
+            // channel cannot change it, so each of these is fully configured before it
+            // is handed over — and altering a sound later needs a new channel id.
+            val soundAttributes = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .build()
+            AlertChannel.entries.forEach { alert ->
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        alert.id,
+                        context.getString(alert.nameRes),
+                        NotificationManager.IMPORTANCE_DEFAULT
+                    ).apply {
+                        description = context.getString(alert.descriptionRes)
+                        setSound(soundUri(context, alert.soundRes), soundAttributes)
+                    }
+                )
+            }
         }
+
+        /** Points at one of the bundled `res/raw` sounds. */
+        private fun soundUri(context: Context, soundRes: Int): Uri =
+            Uri.parse(
+                "${ContentResolver.SCHEME_ANDROID_RESOURCE}://${context.packageName}/$soundRes"
+            )
     }
 }
