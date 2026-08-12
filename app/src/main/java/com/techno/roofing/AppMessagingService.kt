@@ -40,6 +40,9 @@ class AppMessagingService : FirebaseMessagingService() {
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "FCM registration token refreshed: $token")
         }
+        // No-op unless MainActivity is alive; a rotation that happens while the app is
+        // closed reaches the page through the fetch it does on its next launch instead.
+        onTokenRefresh?.invoke(token)
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
@@ -108,6 +111,16 @@ class AppMessagingService : FirebaseMessagingService() {
 
     companion object {
         private const val TAG = "TechnoRoofingFcm"
+
+        /**
+         * Notified on FCM's background thread when a fresh token is issued, so a live
+         * MainActivity can forward it to the page without waiting for a relaunch.
+         *
+         * Static because the service outlives any activity. MainActivity sets it in
+         * onCreate and clears it in onDestroy, so no activity is retained past its life.
+         */
+        @Volatile
+        var onTokenRefresh: ((String) -> Unit)? = null
 
         /** Optional in-app destination carried by a notification tap. */
         const val EXTRA_PUSH_URL = "com.techno.roofing.extra.PUSH_URL"

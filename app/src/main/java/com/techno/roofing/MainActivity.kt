@@ -33,6 +33,7 @@ import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.firebase.messaging.FirebaseMessaging
+import org.json.JSONObject
 
 /**
  * Single-screen wrapper around the web app described by [AppConfig].
@@ -54,6 +55,15 @@ class MainActivity : ComponentActivity() {
 
     /** Whether the page currently loading failed, so the error view can be cleared. */
     private var loadFailed = false
+
+    /**
+     * Newest registration token, or null until one arrives. Kept rather than consumed:
+     * every completed load gets it again, since a fresh document has its own window.
+     */
+    private var fcmToken: String? = null
+
+    /** True while a loaded document is on screen, i.e. there is a window to call into. */
+    private var bridgeReady = false
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -79,6 +89,7 @@ class MainActivity : ComponentActivity() {
 
         AppMessagingService.ensureNotificationChannel(this)
         logFcmToken()
+        startFcmTokenBridge()
 
         val pushTarget = pushTargetUrl(intent)
         when {
@@ -126,6 +137,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // Lives on the service's companion, so leaving it set would outlast this
+        // activity and pin it in memory.
+        AppMessagingService.onTokenRefresh = null
         // An open picker outliving the activity would leave the callback unanswered,
         // pinning a reference to a destroyed WebView.
         fileChooserCallback?.onReceiveValue(null)
@@ -186,6 +200,65 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    /**
+     * Starts feeding the registration token to the page's `window.registerFcmToken`.
+     *
+     * The token and the page become ready independently and in either order, so
+     * neither waits on the other: both paths record the token and then attempt a
+     * send, and whichever half completes last is the one that actually delivers.
+     */
+    private fun startFcmTokenBridge() {
+        // Rotation while this activity is alive. Delivered on an FCM background
+        // thread, so it has to hop to the main thread before touching the WebView.
+        AppMessagingService.onTokenRefresh = { token -> runOnUiThread { publishToken(token) } }
+
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                publishToken(task.result)
+            } else {
+                // Not fatal: onNewToken still fires once FCM issues one, and the next
+                // launch retries. The page simply goes unregistered until then.
+                Log.d(TAG, "FCM token unavailable for the web bridge", task.exception)
+            }
+        }
+    }
+
+    /** Records the newest token and hands it over if a page is already up. */
+    private fun publishToken(token: String) {
+        fcmToken = token
+        flushToken()
+    }
+
+    /** Delivers the token, or does nothing while either half is not ready. */
+    private fun flushToken() {
+        val token = fcmToken ?: return
+        if (!bridgeReady || isDestroyed) return
+        webView.evaluateJavascript(tokenBridgeScript(token), null)
+    }
+
+    /**
+     * A page can finish loading before its own scripts have defined the bridge, so the
+     * snippet polls for it briefly instead of assuming it is there. Every failure mode
+     * is a silent no-op — a missing or throwing bridge must never surface as a JS error
+     * on the page, and the token is quoted through [JSONObject.quote] so it cannot
+     * break out of the string literal.
+     */
+    private fun tokenBridgeScript(token: String): String = """
+        (function () {
+            var token = ${JSONObject.quote(token)};
+            var attempts = 0;
+            (function deliver() {
+                if (typeof window.registerFcmToken === 'function') {
+                    try { window.registerFcmToken(token); } catch (e) {}
+                    return;
+                }
+                if (++attempts <= $BRIDGE_MAX_ATTEMPTS) {
+                    window.setTimeout(deliver, $BRIDGE_RETRY_MS);
+                }
+            })();
+        })();
+    """.trimIndent()
 
     /**
      * Destination carried by a notification tap, or null if there is none.
@@ -318,12 +391,19 @@ class MainActivity : ComponentActivity() {
 
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
             loadFailed = false
+            // A new document means a new window, so the previous bridge is gone.
+            bridgeReady = false
         }
 
         override fun onPageFinished(view: WebView, url: String) {
             progressBar.visibility = View.GONE
             // Clears a stale error screen once any navigation succeeds.
             if (loadFailed) showError() else errorView.visibility = View.GONE
+            // Only a real page carries the bridge; a failed load has no app on it.
+            if (!loadFailed) {
+                bridgeReady = true
+                flushToken()
+            }
         }
 
         override fun onReceivedError(
@@ -368,5 +448,9 @@ class MainActivity : ComponentActivity() {
 
         /** Set once the system dialog has been shown, so it is never shown again. */
         const val KEY_NOTIFICATION_PERMISSION_ASKED = "notification_permission_asked"
+
+        /** Roughly ten seconds of polling for a bridge the page defines asynchronously. */
+        const val BRIDGE_MAX_ATTEMPTS = 40
+        const val BRIDGE_RETRY_MS = 250
     }
 }
